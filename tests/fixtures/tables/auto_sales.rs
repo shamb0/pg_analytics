@@ -39,7 +39,6 @@ use datafusion::parquet::file::properties::WriterProperties;
 use std::fs::File;
 
 const YEARS: [i32; 5] = [2020, 2021, 2022, 2023, 2024];
-
 const MANUFACTURERS: [&str; 10] = [
     "Toyota",
     "Honda",
@@ -52,7 +51,6 @@ const MANUFACTURERS: [&str; 10] = [
     "Hyundai",
     "Kia",
 ];
-
 const MODELS: [&str; 20] = [
     "Sedan",
     "SUV",
