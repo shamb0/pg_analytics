@@ -53,3 +53,8 @@ sqlx = { version = "0.7.4", features = [
 testcontainers = "0.16.7"
 testcontainers-modules = { version = "0.4.2", features = ["localstack"] }
 time = { version = "0.3.34", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = { version = "0.8.5" }
+csv = { version = "1.2.2" }
+soa_derive = { version = "0.13.0" }
