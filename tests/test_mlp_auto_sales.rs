@@ -29,6 +29,11 @@ use crate::fixtures::*;
 use crate::tables::auto_sales::{AutoSalesSimulator, AutoSalesTestRunner};
 use datafusion::datasource::file_format::options::ParquetReadOptions;
 use datafusion::prelude::SessionContext;
+use pg_analytics_test_helpers::common::init_tracer;
+use pg_analytics_test_helpers::fixtures::tables::auto_sales::{
+    AutoSalesSimulator, AutoSalesTestRunner,
+};
+use pg_analytics_test_helpers::fixtures::*;
 
 #[fixture]
 fn parquet_path() -> PathBuf {

@@ -15,17 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use crate::fixtures::arrow::primitive_setup_fdw_local_file_listing;
-use crate::fixtures::db::Query;
-use crate::fixtures::tables::nyc_trips::NycTripsTable;
-use crate::fixtures::{
-    conn, tempdir, time_series_record_batch_minutes, time_series_record_batch_years,
-};
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use datafusion::parquet::arrow::ArrowWriter;
+use pg_analytics_test_helpers::fixtures::arrow::primitive_setup_fdw_local_file_listing;
+use pg_analytics_test_helpers::fixtures::db::Query;
+use pg_analytics_test_helpers::fixtures::tables::nyc_trips::NycTripsTable;
+use pg_analytics_test_helpers::fixtures::{
+    conn, tempdir, time_series_record_batch_minutes, time_series_record_batch_years,
+};
 use rstest::*;
 use sqlx::types::BigDecimal;
 use sqlx::PgConnection;

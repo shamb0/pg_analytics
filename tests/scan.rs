@@ -15,21 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
 use std::fs::File;
 
-use crate::fixtures::arrow::{
-    delta_primitive_record_batch, primitive_record_batch, primitive_setup_fdw_local_file_delta,
-    primitive_setup_fdw_local_file_listing, primitive_setup_fdw_s3_delta,
-    primitive_setup_fdw_s3_listing,
-};
-use crate::fixtures::db::Query;
-use crate::fixtures::{conn, duckdb_conn, s3, tempdir, S3};
 use anyhow::Result;
 use datafusion::parquet::arrow::ArrowWriter;
 use deltalake::operations::create::CreateBuilder;
 use deltalake::writer::{DeltaWriter, RecordBatchWriter};
+use pg_analytics_test_helpers::fixtures::arrow::{
+    delta_primitive_record_batch, primitive_record_batch, primitive_setup_fdw_local_file_delta,
+    primitive_setup_fdw_local_file_listing, primitive_setup_fdw_s3_delta,
+    primitive_setup_fdw_s3_listing,
+};
+use pg_analytics_test_helpers::fixtures::db::Query;
+use pg_analytics_test_helpers::fixtures::{conn, duckdb_conn, s3, tempdir, S3};
 use rstest::*;
 use sqlx::postgres::types::PgInterval;
 use sqlx::types::{BigDecimal, Json, Uuid};
@@ -39,8 +37,8 @@ use std::str::FromStr;
 use tempfile::TempDir;
 use time::macros::{date, datetime, time};
 
-use crate::fixtures::tables::duckdb_types::DuckdbTypesTable;
-use crate::fixtures::tables::nyc_trips::NycTripsTable;
+use pg_analytics_test_helpers::fixtures::tables::duckdb_types::DuckdbTypesTable;
+use pg_analytics_test_helpers::fixtures::tables::nyc_trips::NycTripsTable;
 
 const S3_TRIPS_BUCKET: &str = "test-trip-setup";
 const S3_TRIPS_KEY: &str = "test_trip_setup.parquet";

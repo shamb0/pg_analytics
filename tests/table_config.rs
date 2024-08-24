@@ -15,16 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-mod fixtures;
-
-use crate::fixtures::arrow::{
+use anyhow::Result;
+use datafusion::parquet::arrow::ArrowWriter;
+use pg_analytics_test_helpers::fixtures::arrow::{
     primitive_record_batch, primitive_setup_fdw_local_file_listing, record_batch_with_casing,
     setup_local_file_listing_with_casing,
 };
-use crate::fixtures::db::Query;
-use crate::fixtures::{conn, tempdir};
-use anyhow::Result;
-use datafusion::parquet::arrow::ArrowWriter;
+use pg_analytics_test_helpers::fixtures::db::Query;
+use pg_analytics_test_helpers::fixtures::{conn, tempdir};
 use rstest::*;
 use sqlx::PgConnection;
 use std::fs::File;
