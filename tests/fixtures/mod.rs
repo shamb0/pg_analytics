@@ -23,7 +23,6 @@ use anyhow::{Context, Result};
 use async_std::task::block_on;
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
-use chrono::{DateTime, Duration};
 use bytes::Bytes;
 use chrono::{DateTime, Duration};
 use datafusion::arrow::array::{Int32Array, TimestampMillisecondArray};
