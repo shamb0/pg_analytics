@@ -52,4 +52,3 @@ time = { version = "0.3.34", features = ["serde"] }
 approx = "0.5.1"
 soa_derive = "0.13.0"
 tracing = "0.1"
-

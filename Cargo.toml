@@ -6,9 +6,7 @@ edition = "2021"
 license = "AGPL-3.0"
 
 [workspace]
-members = [
-    "pg_analytics_test_helpers",
-]
+members = ["pg_analytics_test_helpers"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
