@@ -29,11 +29,6 @@ use crate::fixtures::*;
 use crate::tables::auto_sales::{AutoSalesSimulator, AutoSalesTestRunner};
 use datafusion::datasource::file_format::options::ParquetReadOptions;
 use datafusion::prelude::SessionContext;
-use pg_analytics_test_helpers::common::init_tracer;
-use pg_analytics_test_helpers::fixtures::tables::auto_sales::{
-    AutoSalesSimulator, AutoSalesTestRunner,
-};
-use pg_analytics_test_helpers::fixtures::*;
 
 #[fixture]
 fn parquet_path() -> PathBuf {
@@ -57,6 +52,8 @@ async fn test_partitioned_automotive_sales_s3_parquet(
     mut conn: PgConnection,
     parquet_path: PathBuf,
 ) -> Result<()> {
+    print_utils::init_tracer();
+
     // Log the start of the test.
     tracing::error!("test_partitioned_automotive_sales_s3_parquet Started !!!");
 

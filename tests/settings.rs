@@ -1,6 +1,8 @@
+mod fixtures;
+
 use anyhow::Result;
-use pg_analytics_test_helpers::fixtures::conn;
-use pg_analytics_test_helpers::fixtures::db::Query;
+use fixtures::conn;
+use fixtures::db::Query;
 use rstest::*;
 use sqlx::PgConnection;
 

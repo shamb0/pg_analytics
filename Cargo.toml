@@ -5,9 +5,6 @@ version = "0.1.1"
 edition = "2021"
 license = "AGPL-3.0"
 
-[workspace]
-members = ["pg_analytics_test_helpers"]
-
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -65,8 +62,10 @@ testcontainers-modules = { version = "0.4.2", features = ["localstack"] }
 time = { version = "0.3.34", features = ["serde"] }
 geojson = "0.24.1"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = { version = "0.8.5" }
 approx = "0.5.1"
+prettytable = { version = "0.10.0" }
 
 [[bin]]
 name = "pgrx_embed_pg_analytics"

@@ -14,10 +14,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-pub mod tables;
 
 pub mod arrow;
 pub mod db;
+pub mod print_utils;
+pub mod tables;
 
 use anyhow::{Context, Result};
 use async_std::task::block_on;
@@ -51,7 +52,7 @@ use testcontainers_modules::{
 };
 
 use crate::fixtures::db::*;
-use tables::nyc_trips::NycTripsTable;
+use crate::fixtures::tables::nyc_trips::NycTripsTable;
 
 #[fixture]
 pub fn database() -> Db {

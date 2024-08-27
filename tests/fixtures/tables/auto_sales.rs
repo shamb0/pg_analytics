@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::fixtures::{db::Query, S3};
+use crate::fixtures::{db::Query, print_utils, S3};
 use anyhow::{Context, Result};
 use approx::assert_relative_eq;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -39,6 +39,7 @@ use datafusion::parquet::file::properties::WriterProperties;
 use std::fs::File;
 
 const YEARS: [i32; 5] = [2020, 2021, 2022, 2023, 2024];
+
 const MANUFACTURERS: [&str; 10] = [
     "Toyota",
     "Honda",
@@ -51,6 +52,7 @@ const MANUFACTURERS: [&str; 10] = [
     "Hyundai",
     "Kia",
 ];
+
 const MODELS: [&str; 20] = [
     "Sedan",
     "SUV",
@@ -458,6 +460,19 @@ impl AutoSalesTestRunner {
             })
             .collect();
 
+        print_utils::print_results(
+            vec![
+                "Year".to_string(),
+                "Manufacturer".to_string(),
+                "Total Sales".to_string(),
+            ],
+            "Pg_Analytics".to_string(),
+            &total_sales_results,
+            "DuckDb".to_string(),
+            &expected_results,
+        )
+        .await?;
+
         // Compare the results with a small epsilon for floating-point precision.
         for ((pg_year, pg_manufacturer, pg_total), (df_year, df_manufacturer, df_total)) in
             total_sales_results.iter().zip(expected_results.iter())
@@ -535,6 +550,15 @@ impl AutoSalesTestRunner {
                     .collect::<Vec<_>>()
             })
             .collect();
+
+        print_utils::print_results(
+            vec!["Manufacturer".to_string(), "Avg price".to_string()],
+            "Pg_Analytics".to_string(),
+            &avg_price_results,
+            "DuckDb".to_string(),
+            &expected_results,
+        )
+        .await?;
 
         // Compare the results using assert_relative_eq for floating-point precision.
         for ((pg_manufacturer, pg_price), (df_manufacturer, df_price)) in
@@ -637,6 +661,20 @@ impl AutoSalesTestRunner {
                     .collect::<Vec<_>>()
             })
             .collect();
+
+        print_utils::print_results(
+            vec![
+                "Year".to_string(),
+                "Month".to_string(),
+                "Sales Count".to_string(),
+                "Sale IDs (first 5)".to_string(),
+            ],
+            "Pg_Analytics".to_string(),
+            &monthly_sales_results,
+            "DataFrame".to_string(),
+            &expected_results,
+        )
+        .await?;
 
         // Assert that the results from PostgreSQL match the DataFrame results.
         assert_eq!(
