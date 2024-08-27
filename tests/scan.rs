@@ -38,8 +38,8 @@ use std::str::FromStr;
 use tempfile::TempDir;
 use time::macros::{date, datetime, time};
 
-use pg_analytics_test_helpers::fixtures::tables::duckdb_types::DuckdbTypesTable;
-use pg_analytics_test_helpers::fixtures::tables::nyc_trips::NycTripsTable;
+use fixtures::tables::duckdb_types::DuckdbTypesTable;
+use fixtures::tables::nyc_trips::NycTripsTable;
 
 const S3_TRIPS_BUCKET: &str = "test-trip-setup";
 const S3_TRIPS_KEY: &str = "test_trip_setup.parquet";
