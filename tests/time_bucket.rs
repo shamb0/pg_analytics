@@ -22,9 +22,7 @@ use datafusion::parquet::arrow::ArrowWriter;
 use fixtures::arrow::primitive_setup_fdw_local_file_listing;
 use fixtures::db::Query;
 use fixtures::tables::nyc_trips::NycTripsTable;
-use fixtures::{
-    conn, tempdir, time_series_record_batch_minutes, time_series_record_batch_years,
-};
+use fixtures::{conn, tempdir, time_series_record_batch_minutes, time_series_record_batch_years};
 use rstest::*;
 use sqlx::types::BigDecimal;
 use sqlx::PgConnection;

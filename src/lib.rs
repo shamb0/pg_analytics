@@ -34,6 +34,7 @@ static mut EXTENSION_HOOK: ExtensionHook = ExtensionHook;
 
 #[pg_guard]
 pub extern "C" fn _PG_init() {
+    pgrx::warning!("pga:: extension is being initialized");
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     unsafe {

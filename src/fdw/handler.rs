@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use pgrx::*;
+use std::fmt::{self, Debug, Formatter};
 
 #[derive(PartialEq)]
 pub enum FdwHandler {
@@ -40,6 +41,20 @@ impl From<&str> for FdwHandler {
             "iceberg_fdw_handler" => FdwHandler::Iceberg,
             "spatial_fdw_handler" => FdwHandler::Spatial,
             _ => FdwHandler::Other,
+        }
+    }
+}
+
+impl Debug for FdwHandler {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            FdwHandler::Csv => write!(f, "csv_fdw_handler"),
+            FdwHandler::Json => write!(f, "json_fdw_handler"),
+            FdwHandler::Parquet => write!(f, "parquet_fdw_handler"),
+            FdwHandler::Delta => write!(f, "delta_fdw_handler"),
+            FdwHandler::Iceberg => write!(f, "iceberg_fdw_handler"),
+            FdwHandler::Spatial => write!(f, "spatial_fdw_handler"),
+            FdwHandler::Other => write!(f, "FdwHandler::Other"),
         }
     }
 }

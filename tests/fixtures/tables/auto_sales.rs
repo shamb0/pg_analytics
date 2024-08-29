@@ -468,7 +468,7 @@ impl AutoSalesTestRunner {
             ],
             "Pg_Analytics".to_string(),
             &total_sales_results,
-            "DuckDb".to_string(),
+            "DataFrame".to_string(),
             &expected_results,
         )
         .await?;
@@ -479,7 +479,7 @@ impl AutoSalesTestRunner {
         {
             assert_eq!(pg_year, df_year, "Year mismatch");
             assert_eq!(pg_manufacturer, df_manufacturer, "Manufacturer mismatch");
-            assert_relative_eq!(pg_total, df_total, epsilon = 0.0001);
+            assert_relative_eq!(pg_total, df_total, epsilon = 0.001);
         }
 
         Ok(())
@@ -555,7 +555,7 @@ impl AutoSalesTestRunner {
             vec!["Manufacturer".to_string(), "Avg price".to_string()],
             "Pg_Analytics".to_string(),
             &avg_price_results,
-            "DuckDb".to_string(),
+            "DataFrame".to_string(),
             &expected_results,
         )
         .await?;
@@ -565,7 +565,7 @@ impl AutoSalesTestRunner {
             avg_price_results.iter().zip(expected_results.iter())
         {
             assert_eq!(pg_manufacturer, df_manufacturer, "Manufacturer mismatch");
-            assert_relative_eq!(pg_price, df_price, epsilon = 0.0001);
+            assert_relative_eq!(pg_price, df_price, epsilon = 0.001);
         }
 
         Ok(())

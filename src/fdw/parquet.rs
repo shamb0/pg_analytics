@@ -92,6 +92,8 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
         _server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
+        pgrx::warning!("pga:: *** ParquetFdw::new() X ***");
+
         Ok(Self {
             current_batch: None,
             current_batch_index: 0,
@@ -106,6 +108,8 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
         opt_list: Vec<Option<String>>,
         catalog: Option<pg_sys::Oid>,
     ) -> Result<(), BaseFdwError> {
+        pgrx::warning!("pga:: *** ParquetFdw::validator() X ***");
+
         if let Some(oid) = catalog {
             match oid {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
@@ -127,6 +131,8 @@ impl ForeignDataWrapper<BaseFdwError> for ParquetFdw {
                 _ => {}
             }
         }
+
+        pgrx::warning!("pga:: *** ParquetFdw::validator() Y ***");
 
         Ok(())
     }

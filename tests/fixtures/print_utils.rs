@@ -17,6 +17,8 @@
 use anyhow::Result;
 use prettytable::{format, Cell, Row, Table};
 use std::fmt::{Debug, Display};
+use std::process::Command;
+use time::UtcOffset;
 use tracing_subscriber::{fmt, EnvFilter};
 
 pub trait Printable: Debug {
@@ -117,9 +119,39 @@ pub async fn print_results<T: Printable>(
 
 pub fn init_tracer() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
+
+    // Attempt to get the current system offset
+    let system_offset = Command::new("date")
+        .arg("+%z")
+        .output()
+        .ok()
+        .and_then(|output| {
+            String::from_utf8(output.stdout)
+                .ok()
+                .and_then(|offset_str| {
+                    UtcOffset::parse(
+                        offset_str.trim(),
+                        &time::format_description::parse(
+                            "[offset_hour sign:mandatory][offset_minute]",
+                        )
+                        .unwrap(),
+                    )
+                    .ok()
+                })
+        })
+        .expect("System Time Offset Detection failed");
+
+    let timer = fmt::time::OffsetTime::new(
+        system_offset,
+        time::macros::format_description!(
+            "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]"
+        ),
+    );
+
     fmt()
         .with_env_filter(filter)
-        .with_test_writer()
+        .with_timer(timer)
+        .with_ansi(false)
         .try_init()
         .ok();
 }

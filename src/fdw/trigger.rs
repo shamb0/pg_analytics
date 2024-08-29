@@ -42,11 +42,13 @@ extension_sql!(
     AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 ")]
 fn auto_create_schema_hook(fcinfo: pg_sys::FunctionCallInfo) {
+    pgrx::warning!("pga:: *** fdw::auto_create_schema_hook() X ***");
     unsafe {
         auto_create_schema_impl(fcinfo).unwrap_or_else(|e| {
             panic!("{}", e);
         });
     }
+    pgrx::warning!("pga:: *** fdw::auto_create_schema_hook() Y ***");
 }
 
 // Foreign tables should not be created with these names

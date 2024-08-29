@@ -147,6 +147,8 @@ pub fn create_spatial_view(
 }
 
 pub fn create_arrow(sql: &str) -> Result<bool> {
+    pgrx::warning!("pga:: *** duckdb::create_arrow() {:#?} ***", sql);
+
     unsafe {
         let conn = &mut *get_global_connection().get();
         let statement = conn.prepare(sql)?;
@@ -162,6 +164,8 @@ pub fn create_arrow(sql: &str) -> Result<bool> {
             >(arrow));
         }
     }
+
+    pgrx::warning!("pga:: *** duckdb::create_arrow() Y ***");
 
     Ok(true)
 }
@@ -202,6 +206,8 @@ pub fn get_batches() -> Result<Vec<RecordBatch>> {
 }
 
 pub fn execute<P: Params>(sql: &str, params: P) -> Result<usize> {
+    // pgrx::warning!("pga:: *** duckdb::execute() {:#?} ***", sql);
+
     unsafe {
         let conn = &*get_global_connection().get();
         conn.execute(sql, params).map_err(|err| anyhow!("{err}"))
@@ -209,6 +215,12 @@ pub fn execute<P: Params>(sql: &str, params: P) -> Result<usize> {
 }
 
 pub fn view_exists(table_name: &str, schema_name: &str) -> Result<bool> {
+    pgrx::warning!(
+        "pga:: *** duckdb::view_exists() {:#?}, {:#?} ***",
+        table_name,
+        schema_name
+    );
+
     unsafe {
         let conn = &mut *get_global_connection().get();
         let mut statement = conn.prepare(format!("SELECT * from information_schema.tables WHERE table_schema = '{schema_name}' AND table_name = '{table_name}' AND table_type = 'VIEW'").as_str())?;

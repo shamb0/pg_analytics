@@ -214,6 +214,11 @@ pub fn register_duckdb_view(
     user_mapping_options: HashMap<String, String>,
     handler: FdwHandler,
 ) -> Result<()> {
+    pgrx::warning!(
+        "pga:: *** fdw::register_duckdb_view() H :: {:#?} ***",
+        handler
+    );
+
     if !user_mapping_options.is_empty() {
         connection::create_secret(DEFAULT_SECRET, user_mapping_options)?;
     }
@@ -246,6 +251,8 @@ pub fn register_duckdb_view(
             }
         };
     }
+
+    pgrx::warning!("pga:: *** fdw::register_duckdb_view() Y ***");
 
     Ok(())
 }

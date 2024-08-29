@@ -35,6 +35,7 @@ strum = { version = "0.26.3", features = ["derive"] }
 supabase-wrappers = { git = "https://github.com/paradedb/wrappers.git", default-features = false, rev = "c6f5e79" }
 thiserror = "1.0.59"
 uuid = "1.9.1"
+sqlparser = "0.50.0"
 
 [dev-dependencies]
 aws-config = "1.5.1"
@@ -59,10 +60,10 @@ sqlx = { version = "0.7.3", features = [
 tempfile = "3.12.0"
 testcontainers = "0.16.7"
 testcontainers-modules = { version = "0.4.2", features = ["localstack"] }
-time = { version = "0.3.34", features = ["serde"] }
+time = { version = "0.3.34", features = ["serde", "macros", "local-offset"] }
 geojson = "0.24.1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
 rand = { version = "0.8.5" }
 approx = "0.5.1"
 prettytable = { version = "0.10.0" }
