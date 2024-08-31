@@ -15,11 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use duckdb::arrow::array::RecordBatch;
 use pgrx::*;
 use std::ffi::CStr;
 
+use crate::duckdb::connection;
+use crate::fdw::handler::FdwHandler;
+use crate::schema::cell::*;
+
 use super::query::*;
+
+#[cfg(debug_assertions)]
+use crate::DEBUG_GUCS;
 
 macro_rules! fallback_warning {
     ($msg:expr) => {
@@ -40,48 +48,131 @@ pub async fn executor_run(
         execute_once: bool,
     ) -> HookResult<()>,
 ) -> Result<()> {
-    pgrx::warning!("pga:: *** ExtensionHook::executor_run() X ***");
-
-    let ps = query_desc.plannedstmt;
-    let query =
-        QueryInterceptor::get_current_query(ps, unsafe { CStr::from_ptr(query_desc.sourceText) })?;
-    let query_relations = QueryInterceptor::get_query_relations(ps);
-
-    pgrx::warning!(
-        "query_relations.is_empty() :: {:#?}",
-        query_relations.is_empty()
-    );
-
-    if !QueryExecutor::should_use_duckdb(&query_desc, &query, &query_relations) {
+    #[cfg(debug_assertions)]
+    if DEBUG_GUCS.disable_executor.get() {
+        log!("executor hook query pushdown is disabled");
         prev_hook(query_desc, direction, count, execute_once);
-        pgrx::warning!("pga:: *** ExtensionHook::executor_run() Y Stg-01 ***");
         return Ok(());
     }
 
-    match QueryTransformer::transform_query_for_duckdb(&query, &query_relations) {
-        Ok(transformed_queries) => {
-            if transformed_queries.len() > 1 {
-                QueryExecutor::execute_multi_query(
-                    &query_desc,
-                    &transformed_queries,
-                    &query,
-                    &query_relations,
-                )?;
+    let ps = query_desc.plannedstmt;
+    let rtable = unsafe { (*ps).rtable };
+    let query = get_current_query(ps, unsafe { CStr::from_ptr(query_desc.sourceText) })?;
+    let query_relations = get_query_relations(ps);
+    let is_duckdb_query = !query_relations.is_empty()
+        && query_relations.iter().all(|pg_relation| {
+            if pg_relation.is_foreign_table() {
+                let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+                let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+                let fdw_handler = FdwHandler::from(foreign_server);
+                fdw_handler != FdwHandler::Other
             } else {
-                QueryExecutor::execute_duckdb_query(&query_desc, &transformed_queries[0])?;
+                false
             }
-        }
+        });
+
+    if rtable.is_null()
+        || query_desc.operation != pg_sys::CmdType::CMD_SELECT
+        || !is_duckdb_query
+        // Tech Debt: Find a less hacky way to let COPY/CREATE go through
+        || query.to_lowercase().starts_with("copy")
+        || query.to_lowercase().starts_with("create")
+    {
+        prev_hook(query_desc, direction, count, execute_once);
+        return Ok(());
+    }
+
+    // Set DuckDB search path according search path in Postgres
+    // Make sure it could find unqualified relations.
+    set_search_path_by_pg()?;
+
+    match connection::create_arrow(query.as_str()) {
         Err(err) => {
+            connection::clear_arrow();
             fallback_warning!(err.to_string());
             prev_hook(query_desc, direction, count, execute_once);
-            pgrx::warning!(
-                "pga:: *** ExtensionHook::executor_run() Y transform error {:#?} ***",
-                err
-            );
+            return Ok(());
+        }
+        Ok(false) => {
+            connection::clear_arrow();
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    match connection::get_batches() {
+        Ok(batches) => write_batches_to_slots(query_desc, batches)?,
+        Err(err) => {
+            connection::clear_arrow();
+            fallback_warning!(err.to_string());
+            prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }
     }
 
-    pgrx::warning!("pga:: *** ExtensionHook::executor_run() Y ***");
+    connection::clear_arrow();
+    Ok(())
+}
+
+#[inline]
+fn write_batches_to_slots(
+    query_desc: PgBox<pg_sys::QueryDesc>,
+    mut batches: Vec<RecordBatch>,
+) -> Result<()> {
+    // Convert the DataFusion batches to Postgres tuples and send them to the destination
+    unsafe {
+        let tuple_desc = PgTupleDesc::from_pg(query_desc.tupDesc);
+        let estate = query_desc.estate;
+        (*estate).es_processed = 0;
+
+        let dest = query_desc.dest;
+        let startup = (*dest)
+            .rStartup
+            .ok_or_else(|| anyhow!("rStartup not found"))?;
+        startup(dest, query_desc.operation as i32, query_desc.tupDesc);
+
+        let receive = (*dest)
+            .receiveSlot
+            .ok_or_else(|| anyhow!("receiveSlot not found"))?;
+
+        for batch in batches.iter_mut() {
+            for row_index in 0..batch.num_rows() {
+                let tuple_table_slot =
+                    pg_sys::MakeTupleTableSlot(query_desc.tupDesc, &pg_sys::TTSOpsVirtual);
+
+                pg_sys::ExecStoreVirtualTuple(tuple_table_slot);
+
+                for (col_index, _) in tuple_desc.iter().enumerate() {
+                    let attribute = tuple_desc
+                        .get(col_index)
+                        .ok_or_else(|| anyhow!("attribute at {col_index} not found in tupdesc"))?;
+                    let column = batch.column(col_index);
+                    let tts_value = (*tuple_table_slot).tts_values.add(col_index);
+                    let tts_isnull = (*tuple_table_slot).tts_isnull.add(col_index);
+
+                    match column.get_cell(row_index, attribute.atttypid, attribute.name())? {
+                        Some(cell) => {
+                            if let Some(datum) = cell.into_datum() {
+                                *tts_value = datum;
+                            }
+                        }
+                        None => {
+                            *tts_isnull = true;
+                        }
+                    };
+                }
+
+                receive(tuple_table_slot, dest);
+                (*estate).es_processed += 1;
+                pg_sys::ExecDropSingleTupleTableSlot(tuple_table_slot);
+            }
+        }
+
+        let shutdown = (*dest)
+            .rShutdown
+            .ok_or_else(|| anyhow!("rShutdown not found"))?;
+        shutdown(dest);
+    }
+
     Ok(())
 }

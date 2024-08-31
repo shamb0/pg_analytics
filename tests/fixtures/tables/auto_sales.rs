@@ -243,14 +243,23 @@ impl AutoSalesTestRunner {
                         col("sale_id").sort(true, false),
                     ])?;
 
-                let method_batches: Vec<RecordBatch> = method_result.collect().await?;
+                let partitioned_batches: Vec<RecordBatch> = method_result.collect().await?;
 
-                for (i, batch) in method_batches.iter().enumerate() {
-                    let key = format!("{}/{}/data_{}.parquet", year, manufacturer, i);
+                // Upload each batch to S3 with the appropriate key format
+                for (i, batch) in partitioned_batches.iter().enumerate() {
+                    // Use Hive-style partitioning in the S3 key
+                    let key = format!(
+                        "year={}/manufacturer={}/data_{}.parquet",
+                        year, manufacturer, i
+                    );
                     tracing::debug!("Uploading batch {} to S3: {}", i, key);
+
+                    // Upload the batch to the specified S3 bucket
                     s3.put_batch(s3_bucket, &key, batch)
                         .await
-                        .with_context(|| format!("Failed to upload batch {} to S3", i))?;
+                        .with_context(|| {
+                            format!("Failed to upload batch {} to S3 with key {}", i, key)
+                        })?;
                 }
             }
         }
@@ -263,7 +272,7 @@ impl AutoSalesTestRunner {
     pub async fn teardown_tables(conn: &mut PgConnection) -> Result<()> {
         // Drop the partitioned table (this will also drop all its partitions)
         let drop_partitioned_table = r#"
-            DROP TABLE IF EXISTS auto_sales_partitioned CASCADE;
+            DROP TABLE IF EXISTS auto_sales CASCADE;
         "#;
         drop_partitioned_table.execute_result(conn)?;
 
@@ -301,17 +310,7 @@ impl AutoSalesTestRunner {
             }
         }
 
-        Self::create_partitioned_table().execute_result(conn)?;
-
-        // Create partitions
-        for year in YEARS {
-            Self::create_year_partition(year).execute_result(conn)?;
-
-            for manufacturer in MANUFACTURERS {
-                Self::create_manufacturer_partition(s3_bucket, year, manufacturer)
-                    .execute_result(conn)?;
-            }
-        }
+        Self::create_partitioned_foreign_table(s3_bucket).execute_result(conn)?;
 
         Ok(())
     }
@@ -339,44 +338,25 @@ impl AutoSalesTestRunner {
         )
     }
 
-    fn create_partitioned_table() -> String {
-        r#"
-        CREATE TABLE auto_sales_partitioned (
-            sale_id                 BIGINT,
-            sale_date               DATE,
-            manufacturer            TEXT,
-            model                   TEXT,
-            price                   DOUBLE PRECISION,
-            dealership_id           INT,
-            customer_id             INT,
-            year                    INT,
-            month                   INT
-        )
-        PARTITION BY LIST (year);
-        "#
-        .to_string()
-    }
-
-    fn create_year_partition(year: i32) -> String {
+    fn create_partitioned_foreign_table(s3_bucket: &str) -> String {
+        // Construct the SQL statement for creating a partitioned foreign table
         format!(
             r#"
-            CREATE TABLE auto_sales_y{year} 
-            PARTITION OF auto_sales_partitioned
-            FOR VALUES IN ({year})
-            PARTITION BY LIST (manufacturer);
-            "#
-        )
-    }
-
-    fn create_manufacturer_partition(s3_bucket: &str, year: i32, manufacturer: &str) -> String {
-        format!(
-            r#"
-            CREATE FOREIGN TABLE auto_sales_y{year}_{manufacturer} 
-            PARTITION OF auto_sales_y{year}
-            FOR VALUES IN ('{manufacturer}')
+            CREATE FOREIGN TABLE auto_sales (
+                sale_id                 BIGINT,
+                sale_date               DATE,
+                manufacturer            TEXT,
+                model                   TEXT,
+                price                   DOUBLE PRECISION,
+                dealership_id           INT,
+                customer_id             INT,
+                year                    INT,
+                month                   INT
+            )
             SERVER auto_sales_server
             OPTIONS (
-                files 's3://{s3_bucket}/{year}/{manufacturer}/*.parquet'
+                files 's3://{s3_bucket}/year=*/manufacturer=*/data_*.parquet',
+                hive_partitioning '1'
             );
             "#
         )
@@ -394,7 +374,7 @@ impl AutoSalesTestRunner {
         // SQL query to calculate total sales grouped by year and manufacturer.
         let total_sales_query = r#"
             SELECT year, manufacturer, ROUND(SUM(price)::numeric, 4)::float8 as total_sales
-            FROM auto_sales_partitioned
+            FROM auto_sales
             WHERE year BETWEEN 2020 AND 2024
             GROUP BY year, manufacturer
             ORDER BY year, total_sales DESC;
@@ -495,7 +475,7 @@ impl AutoSalesTestRunner {
         // SQL query to calculate the average price by manufacturer for 2023.
         let avg_price_query = r#"
             SELECT manufacturer, ROUND(AVG(price)::numeric, 4)::float8 as avg_price
-            FROM auto_sales_partitioned
+            FROM auto_sales
             WHERE year = 2023
             GROUP BY manufacturer
             ORDER BY avg_price DESC;
@@ -582,7 +562,7 @@ impl AutoSalesTestRunner {
         let monthly_sales_query = r#"
             SELECT year, month, COUNT(*) as sales_count, 
                    array_agg(sale_id) as sale_ids
-            FROM auto_sales_partitioned
+            FROM auto_sales
             WHERE manufacturer = 'Toyota' AND year = 2024
             GROUP BY year, month
             ORDER BY month;

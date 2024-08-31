@@ -38,8 +38,6 @@ impl hooks::PgHooks for ExtensionHook {
             execute_once: bool,
         ) -> HookResult<()>,
     ) -> HookResult<()> {
-        pgrx::warning!("pga:: *** executor_run() X ***");
-
         block_on(executor::executor_run(
             query_desc,
             direction,
@@ -50,8 +48,6 @@ impl hooks::PgHooks for ExtensionHook {
         .unwrap_or_else(|err| {
             panic!("{}", err);
         });
-
-        pgrx::warning!("pga:: *** executor_run() Y ***");
 
         HookResult::new(())
     }
