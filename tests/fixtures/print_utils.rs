@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use prettytable::{format, Cell, Row, Table};
 use std::fmt::{Debug, Display};
 use std::process::Command;
@@ -117,7 +118,7 @@ pub async fn print_results<T: Printable>(
     Ok(())
 }
 
-pub fn init_tracer() {
+static TRACER_INIT: Lazy<()> = Lazy::new(|| {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
 
     // Attempt to get the current system offset
@@ -154,4 +155,8 @@ pub fn init_tracer() {
         .with_ansi(false)
         .try_init()
         .ok();
+});
+
+pub fn init_tracer() {
+    Lazy::force(&TRACER_INIT);
 }

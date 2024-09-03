@@ -20,11 +20,13 @@ mod fixtures;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::Result;
 use rstest::*;
 use sqlx::PgConnection;
 
+use crate::fixtures::db::Query;
 use crate::fixtures::*;
 use crate::tables::auto_sales::{AutoSalesSimulator, AutoSalesTestRunner};
 use datafusion::datasource::file_format::options::ParquetReadOptions;
@@ -46,16 +48,69 @@ fn parquet_path() -> PathBuf {
     parquet_path
 }
 
+// #[rstest]
+// async fn test_partitioned_automotive_sales_s3_parquet(
+//     #[future] s3: S3,
+//     mut conn: PgConnection,
+//     parquet_path: PathBuf,
+// ) -> Result<()> {
+//     print_utils::init_tracer();
+
+//     // Log the start of the test.
+//     tracing::error!("test_partitioned_automotive_sales_s3_parquet Started !!!");
+
+//     // Check if the Parquet file already exists at the specified path.
+//     if !parquet_path.exists() {
+//         // If the file doesn't exist, generate and save sales data in batches.
+//         AutoSalesSimulator::save_to_parquet_in_batches(10000, 100, &parquet_path)
+//             .map_err(|e| anyhow::anyhow!("Failed to save parquet: {}", e))?;
+//     }
+
+//     // Create a new DataFusion session context for querying the data.
+//     let ctx = SessionContext::new();
+//     // Load the sales data from the Parquet file into a DataFrame.
+//     let df_sales_data = ctx
+//         .read_parquet(
+//             parquet_path.to_str().unwrap(),
+//             ParquetReadOptions::default(),
+//         )
+//         .await?;
+
+//     // Await the S3 service setup.
+//     let s3 = s3.await;
+//     // Define the S3 bucket name for storing sales data.
+//     let s3_bucket = "demo-mlp-auto-sales";
+//     // Create the S3 bucket if it doesn't already exist.
+//     s3.create_bucket(s3_bucket).await?;
+
+//     // Partition the data and upload the partitions to the S3 bucket.
+//     AutoSalesTestRunner::create_partition_and_upload_to_s3(&s3, s3_bucket, &df_sales_data).await?;
+
+//     // Set up the necessary tables in the PostgreSQL database using the data from S3.
+//     AutoSalesTestRunner::setup_tables(&mut conn, &s3, s3_bucket).await?;
+
+//     // Assert that the total sales calculation matches the expected result.
+//     AutoSalesTestRunner::assert_total_sales(&mut conn, &df_sales_data).await?;
+
+//     // Assert that the average price calculation matches the expected result.
+//     AutoSalesTestRunner::assert_avg_price(&mut conn, &df_sales_data).await?;
+
+//     // Assert that the monthly sales calculation matches the expected result.
+//     AutoSalesTestRunner::assert_monthly_sales(&mut conn, &df_sales_data).await?;
+
+//     // Return Ok if all assertions pass successfully.
+//     Ok(())
+// }
+
+// Add this new test function after the existing tests
 #[rstest]
-async fn test_partitioned_automotive_sales_s3_parquet(
+async fn test_duckdb_object_cache_performance(
     #[future] s3: S3,
     mut conn: PgConnection,
     parquet_path: PathBuf,
 ) -> Result<()> {
     print_utils::init_tracer();
-
-    // Log the start of the test.
-    tracing::error!("test_partitioned_automotive_sales_s3_parquet Started !!!");
+    tracing::info!("Starting test_duckdb_object_cache_performance");
 
     // Check if the Parquet file already exists at the specified path.
     if !parquet_path.exists() {
@@ -74,10 +129,10 @@ async fn test_partitioned_automotive_sales_s3_parquet(
         )
         .await?;
 
-    // Await the S3 service setup.
+    // Set up the test environment
     let s3 = s3.await;
-    // Define the S3 bucket name for storing sales data.
     let s3_bucket = "demo-mlp-auto-sales";
+
     // Create the S3 bucket if it doesn't already exist.
     s3.create_bucket(s3_bucket).await?;
 
@@ -87,15 +142,46 @@ async fn test_partitioned_automotive_sales_s3_parquet(
     // Set up the necessary tables in the PostgreSQL database using the data from S3.
     AutoSalesTestRunner::setup_tables(&mut conn, &s3, s3_bucket).await?;
 
-    // Assert that the total sales calculation matches the expected result.
-    AutoSalesTestRunner::assert_total_sales(&mut conn, &df_sales_data).await?;
+    // Get the benchmark query
+    let benchmark_query = AutoSalesTestRunner::benchmark_query();
 
-    // Assert that the average price calculation matches the expected result.
-    // AutoSalesTestRunner::assert_avg_price(&mut conn, &df_sales_data).await?;
+    // Run benchmarks
+    let warmup_iterations = 5;
+    let num_iterations = 10;
+    let cache_disabled_times = AutoSalesTestRunner::run_benchmark_iterations(
+        &mut conn,
+        &benchmark_query,
+        num_iterations,
+        warmup_iterations,
+        false,
+        &df_sales_data,
+    )
+    .await?;
+    let cache_enabled_times = AutoSalesTestRunner::run_benchmark_iterations(
+        &mut conn,
+        &benchmark_query,
+        num_iterations,
+        warmup_iterations,
+        true,
+        &df_sales_data,
+    )
+    .await?;
+    let final_disabled_times = AutoSalesTestRunner::run_benchmark_iterations(
+        &mut conn,
+        &benchmark_query,
+        num_iterations,
+        warmup_iterations,
+        false,
+        &df_sales_data,
+    )
+    .await?;
 
-    // Assert that the monthly sales calculation matches the expected result.
-    // AutoSalesTestRunner::assert_monthly_sales(&mut conn, &df_sales_data).await?;
+    // Analyze and report results
+    AutoSalesTestRunner::report_benchmark_results(
+        cache_disabled_times,
+        cache_enabled_times,
+        final_disabled_times,
+    );
 
-    // Return Ok if all assertions pass successfully.
     Ok(())
 }
