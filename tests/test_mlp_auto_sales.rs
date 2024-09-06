@@ -102,7 +102,6 @@ fn parquet_path() -> PathBuf {
 //     Ok(())
 // }
 
-// Add this new test function after the existing tests
 #[rstest]
 async fn test_duckdb_object_cache_performance(
     #[future] s3: S3,
