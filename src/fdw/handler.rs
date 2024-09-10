@@ -24,6 +24,7 @@ pub enum FdwHandler {
     Parquet,
     Delta,
     Iceberg,
+    Spatial,
     Other,
 }
 
@@ -37,6 +38,7 @@ impl From<&str> for FdwHandler {
             "parquet_fdw_handler" => FdwHandler::Parquet,
             "delta_fdw_handler" => FdwHandler::Delta,
             "iceberg_fdw_handler" => FdwHandler::Iceberg,
+            "spatial_fdw_handler" => FdwHandler::Spatial,
             _ => FdwHandler::Other,
         }
     }
@@ -49,7 +51,7 @@ impl From<*mut pg_sys::ForeignServer> for FdwHandler {
         let handler_oid = unsafe { (*fdw).fdwhandler };
         let proc_tuple = unsafe {
             pg_sys::SearchSysCache1(
-                pg_sys::SysCacheIdentifier_PROCOID as i32,
+                pg_sys::SysCacheIdentifier::PROCOID as i32,
                 handler_oid.into_datum().unwrap(),
             )
         };

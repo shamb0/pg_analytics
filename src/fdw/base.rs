@@ -19,11 +19,14 @@ use anyhow::{anyhow, Result};
 use duckdb::arrow::array::RecordBatch;
 use pgrx::*;
 use std::collections::HashMap;
+use strum::IntoEnumIterator;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use crate::duckdb::connection;
 use crate::schema::cell::*;
+#[cfg(debug_assertions)]
+use crate::DEBUG_GUCS;
 
 pub trait BaseFdw {
     // Getter methods
@@ -43,8 +46,7 @@ pub trait BaseFdw {
 
     async fn begin_scan_impl(
         &mut self,
-        // TODO: Push down quals
-        _quals: &[Qual],
+        quals: &[Qual],
         columns: &[Column],
         sorts: &[Sort],
         limit: &Option<Limit>,
@@ -68,9 +70,6 @@ pub trait BaseFdw {
             connection::create_secret(user_mapping_options)?;
         }
 
-        // Ensure we are in the same DuckDB schema as the Postgres schema
-        connection::execute(format!("SET SCHEMA '{schema_name}'").as_str(), [])?;
-
         // Construct SQL scan statement
         let targets = if columns.is_empty() {
             "*".to_string()
@@ -83,6 +82,16 @@ pub trait BaseFdw {
         };
 
         let mut sql = format!("SELECT {targets} FROM {schema_name}.{table_name}");
+
+        if !quals.is_empty() {
+            let mut formatter = DuckDbFormatter::new();
+            let where_clauses = quals
+                .iter()
+                .map(|x| x.deparse_with_fmt(&mut formatter))
+                .collect::<Vec<String>>()
+                .join(" AND ");
+            sql.push_str(&format!(" WHERE {}", where_clauses));
+        }
 
         if !sorts.is_empty() {
             let order_by = sorts
@@ -103,6 +112,11 @@ pub trait BaseFdw {
     }
 
     async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>> {
+        #[cfg(debug_assertions)]
+        if DEBUG_GUCS.disable_fdw.get() {
+            error!("FDW is disabled. This may indicate that the executor hook did not execute as expected.")
+        }
+
         if !self.get_scan_started() {
             self.set_scan_started();
             let sql = self
@@ -195,4 +209,49 @@ pub enum BaseFdwError {
 
     #[error(transparent)]
     Options(#[from] OptionsError),
+}
+
+struct DuckDbFormatter {}
+
+impl CellFormatter for DuckDbFormatter {
+    fn fmt_cell(&mut self, cell: &Cell) -> String {
+        match cell {
+            Cell::Bytea(v) => {
+                let byte_u8 = unsafe { varlena_to_byte_slice(*v) };
+                let hex = byte_u8
+                    .iter()
+                    .map(|b| format!(r#"\x{:02X}"#, b))
+                    .collect::<Vec<String>>()
+                    .join("");
+                format!("'{}'", hex)
+            }
+
+            cell => format!("{}", cell),
+        }
+    }
+}
+
+impl DuckDbFormatter {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+pub(crate) trait OptionValidator {
+    fn is_required(&self) -> bool;
+}
+
+pub fn validate_mapping_option<T: IntoEnumIterator + OptionValidator + AsRef<str>>(
+    opt_list: Vec<Option<String>>,
+) -> Result<()> {
+    let valid_options: Vec<String> = T::iter().map(|opt| opt.as_ref().to_string()).collect();
+
+    validate_options(opt_list.clone(), valid_options)?;
+
+    for opt in T::iter() {
+        if opt.is_required() {
+            check_options_contain(&opt_list, opt.as_ref())?;
+        }
+    }
+    Ok(())
 }

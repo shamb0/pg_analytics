@@ -221,3 +221,28 @@ pub fn drop_relation(table_name: &str, schema_name: &str) -> Result<()> {
 
     Ok(())
 }
+
+pub fn get_available_schemas() -> Result<Vec<String>> {
+    let conn = get_global_connection()?;
+    let conn = conn
+        .lock()
+        .map_err(|e| anyhow!("Failed to acquire lock: {}", e))?;
+    let mut stmt = conn.prepare("select DISTINCT(nspname) from pg_namespace;")?;
+    let schemas: Vec<String> = stmt
+        .query_map([], |row| {
+            let s: String = row.get(0)?;
+            Ok(s)
+        })?
+        .map(|x| x.unwrap())
+        .collect();
+
+    Ok(schemas)
+}
+
+pub fn set_search_path(search_path: Vec<String>) -> Result<()> {
+    let schemas = search_path.join(",");
+    // Set duckdb catalog search path
+    execute(format!("SET search_path TO '{schemas}'").as_str(), [])?;
+
+    Ok(())
+}

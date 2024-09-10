@@ -15,34 +15,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::fdw::base::OptionValidator;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
+use strum::{AsRefStr, EnumIter};
 
+#[derive(EnumIter, AsRefStr, PartialEq, Debug)]
 pub enum DeltaOption {
+    #[strum(serialize = "cache")]
     Cache,
+    #[strum(serialize = "files")]
     Files,
+    #[strum(serialize = "preserve_casing")]
     PreserveCasing,
+    #[strum(serialize = "select")]
+    Select,
 }
 
-impl DeltaOption {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Cache => "cache",
-            Self::Files => "files",
-            Self::PreserveCasing => "preserve_casing",
-        }
-    }
-
-    pub fn is_required(&self) -> bool {
+impl OptionValidator for DeltaOption {
+    fn is_required(&self) -> bool {
         match self {
             Self::Cache => false,
             Self::Files => true,
             Self::PreserveCasing => false,
+            Self::Select => false,
         }
-    }
-
-    pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Cache, Self::Files, Self::PreserveCasing].into_iter()
     }
 }
 
@@ -54,12 +51,12 @@ pub fn create_duckdb_relation(
     let files = format!(
         "'{}'",
         table_options
-            .get(DeltaOption::Files.as_str())
+            .get(DeltaOption::Files.as_ref())
             .ok_or_else(|| anyhow!("files option is required"))?
     );
 
     let cache = table_options
-        .get(DeltaOption::Cache.as_str())
+        .get(DeltaOption::Cache.as_ref())
         .map(|s| s.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
@@ -80,7 +77,7 @@ mod tests {
         let table_name = "test";
         let schema_name = "main";
         let table_options = HashMap::from([(
-            DeltaOption::Files.as_str().to_string(),
+            DeltaOption::Files.as_ref().to_string(),
             "/data/delta".to_string(),
         )]);
 

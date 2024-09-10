@@ -16,21 +16,25 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 mod api;
+#[cfg(debug_assertions)]
+mod debug_guc;
 mod duckdb;
 mod env;
 mod fdw;
 mod hooks;
 mod schema;
 
+#[cfg(debug_assertions)]
+use crate::debug_guc::DebugGucSettings;
 use hooks::ExtensionHook;
 use pgrx::*;
-use shared::{
-    gucs::PostgresGlobalGucSettings,
-    telemetry::{setup_telemetry_background_worker, ParadeExtension},
-};
 
+// TODO: Reactivate once we've properly integrated with the monorepo
 // A static variable is required to host grand unified configuration settings.
-pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
+// pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
+
+#[cfg(debug_assertions)]
+pub static DEBUG_GUCS: DebugGucSettings = DebugGucSettings::new();
 
 pg_module_magic!();
 
@@ -39,15 +43,16 @@ static mut EXTENSION_HOOK: ExtensionHook = ExtensionHook;
 #[pg_guard]
 pub extern "C" fn _PG_init() {
     #[allow(static_mut_refs)]
+    #[allow(deprecated)]
     unsafe {
         register_hook(&mut EXTENSION_HOOK)
     };
 
-    GUCS.init("pg_analytics");
+    // GUCS.init("pg_analytics");
     pg_shmem_init!(env::DUCKDB_CONNECTION_CACHE);
 
-    // TODO: Change to ParadeExtension::PgAnalytics
-    setup_telemetry_background_worker(ParadeExtension::PgLakehouse);
+    #[cfg(debug_assertions)]
+    DEBUG_GUCS.init();
 }
 
 #[cfg(test)]

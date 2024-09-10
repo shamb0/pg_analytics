@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="assets/pg_analytics.svg" alt="pg_analytics" width="500px">
+  <img src="assets/pg_analytics.svg" alt="pg_analytics">
 <br>
 </h1>
 
@@ -199,7 +199,7 @@ Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
-cargo install --locked cargo-pgrx --version 0.11.3
+cargo install --locked cargo-pgrx --version 0.12.1
 
 # macOS arm64
 cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config

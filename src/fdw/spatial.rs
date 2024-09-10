@@ -23,14 +23,14 @@ use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
 
 use super::base::*;
-use crate::duckdb::{csv::CsvOption, secret::UserMappingOptions};
+use crate::duckdb::{secret::UserMappingOptions, spatial::SpatialOption};
 
 #[wrappers_fdw(
     author = "ParadeDB",
     website = "https://github.com/paradedb/paradedb",
     error_type = "BaseFdwError"
 )]
-pub(crate) struct CsvFdw {
+pub(crate) struct SpatialFdw {
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
     scan_started: bool,
@@ -39,7 +39,7 @@ pub(crate) struct CsvFdw {
     user_mapping_options: HashMap<String, String>,
 }
 
-impl BaseFdw for CsvFdw {
+impl BaseFdw for SpatialFdw {
     fn get_current_batch(&self) -> Option<RecordBatch> {
         self.current_batch.clone()
     }
@@ -85,7 +85,7 @@ impl BaseFdw for CsvFdw {
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for CsvFdw {
+impl ForeignDataWrapper<BaseFdwError> for SpatialFdw {
     fn new(
         _table_options: HashMap<String, String>,
         _server_options: HashMap<String, String>,
@@ -110,7 +110,7 @@ impl ForeignDataWrapper<BaseFdwError> for CsvFdw {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
                 FOREIGN_SERVER_RELATION_ID => {}
                 FOREIGN_TABLE_RELATION_ID => {
-                    validate_mapping_option::<CsvOption>(opt_list)?;
+                    validate_mapping_option::<SpatialOption>(opt_list)?;
                 }
                 USER_MAPPING_RELATION_ID => {
                     validate_mapping_option::<UserMappingOptions>(opt_list)?;
@@ -118,6 +118,7 @@ impl ForeignDataWrapper<BaseFdwError> for CsvFdw {
                 _ => {}
             }
         }
+
         Ok(())
     }
 

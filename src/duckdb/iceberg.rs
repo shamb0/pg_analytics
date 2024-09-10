@@ -17,41 +17,33 @@
 
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
+use strum::{AsRefStr, EnumIter};
 
+use crate::fdw::base::OptionValidator;
+
+#[derive(EnumIter, AsRefStr, PartialEq, Debug)]
 pub enum IcebergOption {
+    #[strum(serialize = "allow_moved_paths")]
     AllowMovedPaths,
+    #[strum(serialize = "cache")]
     Cache,
+    #[strum(serialize = "files")]
     Files,
+    #[strum(serialize = "preserve_casing")]
     PreserveCasing,
+    #[strum(serialize = "select")]
+    Select,
 }
 
-impl IcebergOption {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::AllowMovedPaths => "allow_moved_paths",
-            Self::Cache => "cache",
-            Self::Files => "files",
-            Self::PreserveCasing => "preserve_casing",
-        }
-    }
-
-    pub fn is_required(&self) -> bool {
+impl OptionValidator for IcebergOption {
+    fn is_required(&self) -> bool {
         match self {
             Self::AllowMovedPaths => false,
             Self::Cache => false,
             Self::Files => true,
             Self::PreserveCasing => false,
+            Self::Select => false,
         }
-    }
-
-    pub fn iter() -> impl Iterator<Item = Self> {
-        [
-            Self::AllowMovedPaths,
-            Self::Cache,
-            Self::Files,
-            Self::PreserveCasing,
-        ]
-        .into_iter()
     }
 }
 
@@ -63,12 +55,12 @@ pub fn create_duckdb_relation(
     let files = Some(format!(
         "'{}'",
         table_options
-            .get(IcebergOption::Files.as_str())
+            .get(IcebergOption::Files.as_ref())
             .ok_or_else(|| anyhow!("files option is required"))?
     ));
 
     let allow_moved_paths = table_options
-        .get(IcebergOption::AllowMovedPaths.as_str())
+        .get(IcebergOption::AllowMovedPaths.as_ref())
         .map(|option| format!("allow_moved_paths = {option}"));
 
     let create_iceberg_str = [files, allow_moved_paths]
@@ -78,7 +70,7 @@ pub fn create_duckdb_relation(
         .join(", ");
 
     let cache = table_options
-        .get(IcebergOption::Cache.as_str())
+        .get(IcebergOption::Cache.as_ref())
         .map(|s| s.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
@@ -97,7 +89,7 @@ mod tests {
         let table_name = "test";
         let schema_name = "main";
         let table_options = HashMap::from([(
-            IcebergOption::Files.as_str().to_string(),
+            IcebergOption::Files.as_ref().to_string(),
             "/data/iceberg".to_string(),
         )]);
 

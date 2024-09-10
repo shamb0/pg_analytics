@@ -14,13 +14,15 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-
 mod fixtures;
 
 use anyhow::Result;
-use fixtures::*;
+use fixtures::db::Query;
+use fixtures::{conn, s3, S3};
 use rstest::*;
 use sqlx::PgConnection;
+
+use fixtures::tables::nyc_trips::NycTripsTable;
 
 const S3_BUCKET: &str = "test-trip-setup";
 const S3_KEY: &str = "test_trip_setup.parquet";
