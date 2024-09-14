@@ -45,14 +45,13 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
 };
+use testcontainers::runners::AsyncRunner;
 use testcontainers::ContainerAsync;
-use testcontainers_modules::{
-    localstack::LocalStack,
-    testcontainers::{runners::AsyncRunner, RunnableImage},
-};
+use testcontainers_modules::{localstack::LocalStack, testcontainers::ImageExt};
 
 use crate::fixtures::db::*;
 use crate::fixtures::tables::nyc_trips::NycTripsTable;
+use tokio::runtime::Runtime;
 
 #[fixture]
 pub fn database() -> Db {
@@ -95,13 +94,18 @@ pub struct S3 {
 }
 
 impl S3 {
-    async fn new() -> Self {
-        let image: RunnableImage<LocalStack> =
-            RunnableImage::from(LocalStack).with_env_var(("SERVICES", "s3"));
-        let container = image.start().await;
+    pub async fn new() -> Self {
+        let request = LocalStack::default().with_env_var("SERVICES", "s3");
+        let container = request
+            .start()
+            .await
+            .expect("failed to start the container");
 
-        let host_ip = container.get_host().await;
-        let host_port = container.get_host_port_ipv4(4566).await;
+        let host_ip = container.get_host().await.expect("failed to get Host IP");
+        let host_port = container
+            .get_host_port_ipv4(4566)
+            .await
+            .expect("failed to get Host Port");
         let url = format!("{host_ip}:{host_port}");
         let creds = aws_sdk_s3::config::Credentials::new("fake", "fake", None, None, "test");
 
@@ -119,6 +123,12 @@ impl S3 {
             client,
             url,
         }
+    }
+
+    #[allow(unused)]
+    pub async fn cleanup(&mut self) {
+        self.container.stop().await;
+        // let _ = drop(&mut self.container);
     }
 
     #[allow(unused)]
@@ -240,6 +250,21 @@ impl S3 {
         )
         .await?;
         Ok(())
+    }
+}
+
+impl Drop for S3 {
+    fn drop(&mut self) {
+        tracing::warn!("S3 Drop Called");
+
+        let runtime = Runtime::new().expect("Failed to create Tokio runtime");
+        runtime.block_on(async {
+            self.container
+                .stop()
+                .await
+                .expect("Failed to stop container");
+            // let _ = drop(&mut self.container);
+        });
     }
 }
 

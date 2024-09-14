@@ -28,14 +28,16 @@ use async_std::task::block_on;
 use bytes::Bytes;
 use datafusion::arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 use sqlx::{
-    postgres::PgRow,
+    pool::PoolConnection,
+    postgres::{PgPoolOptions, PgRow},
     testing::{TestArgs, TestContext, TestSupport},
-    ConnectOptions, Decode, Executor, FromRow, PgConnection, Postgres, Type,
+    ConnectOptions, Decode, Executor, FromRow, PgConnection, Pool, Postgres, Type,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct Db {
     context: TestContext<Postgres>,
+    pool: Pool<Postgres>,
 }
 
 impl Db {
@@ -52,7 +54,22 @@ impl Db {
             .await
             .unwrap_or_else(|err| panic!("could not create test database: {err:#?}"));
 
-        Self { context }
+        // let mut connect_opts = context.connect_opts.clone();
+        // connect_opts = connect_opts
+        //     .statement_timeout(Some(Duration::from_secs(60)))  // 60 seconds statement timeout
+        //     .log_slow_statements(LevelFilter::Warn, Duration::from_secs(5));  // Log slow statements after 5 seconds
+
+        let pool = PgPoolOptions::new()
+            .max_connections(10) // Increased from 5
+            .min_connections(1) // Ensure at least one connection is always ready
+            .max_lifetime(Some(Duration::from_secs(30 * 60))) // 30 minutes max lifetime
+            .idle_timeout(Some(Duration::from_secs(10 * 60))) // 10 minutes idle timeout
+            .acquire_timeout(Duration::from_secs(30)) // 30 seconds acquire timeout
+            .connect_with(context.connect_opts.clone())
+            .await
+            .unwrap_or_else(|err| panic!("failed to create connection pool: {err:#?}"));
+
+        Self { context, pool }
     }
 
     pub async fn connection(&self) -> PgConnection {
@@ -61,6 +78,33 @@ impl Db {
             .connect()
             .await
             .unwrap_or_else(|err| panic!("failed to connect to test database: {err:#?}"))
+    }
+
+    pub async fn acquire_pg_pool_connection(
+        &self,
+    ) -> Result<PoolConnection<Postgres>, sqlx::Error> {
+        self.pool.acquire().await
+    }
+
+    pub async fn get_pool(&self) -> Pool<Postgres> {
+        PgPoolOptions::new()
+            .max_connections(5)
+            .connect_with(self.context.connect_opts.clone())
+            .await
+            .unwrap_or_else(|_| panic!("Failed to create connection pool"))
+    }
+
+    pub async fn cleanup(&mut self) {
+        // let db_name = self.context.db_name.clone();
+
+        // Gracefully close the connection pool
+        self.pool.close().await;
+
+        // Use the SQLx cleanup_test helper function
+        // Postgres::cleanup_test(&db_name).await?;
+
+        // Optionally, clean up other test databases
+        // let _ = Postgres::cleanup_test_dbs().await;
     }
 }
 

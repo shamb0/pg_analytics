@@ -17,7 +17,7 @@
 
 use anyhow::{anyhow, Result};
 use duckdb::arrow::array::RecordBatch;
-use duckdb::{Params, Statement};
+use duckdb::{Connection, Params, Statement};
 use signal_hook::consts::signal::*;
 use signal_hook::iterator::Signals;
 use std::cell::UnsafeCell;
@@ -25,13 +25,15 @@ use std::collections::HashMap;
 use std::sync::Once;
 use std::thread;
 
-use crate::env::get_global_connection;
+use crate::env::{get_global_connection, interrupt_all_connections};
+use crate::with_connection;
 
 use super::csv;
 use super::delta;
 use super::iceberg;
 use super::parquet;
 use super::secret;
+use super::spatial;
 
 // Global mutable static variables
 static mut GLOBAL_STATEMENT: Option<UnsafeCell<Option<Statement<'static>>>> = None;
@@ -47,36 +49,23 @@ fn init_globals() {
     thread::spawn(move || {
         let mut signals =
             Signals::new([SIGTERM, SIGINT, SIGQUIT]).expect("error registering signal listener");
+
         for _ in signals.forever() {
-            match get_global_connection() {
-                Ok(conn) => {
-                    if let Err(err) = conn.lock() {
-                        eprintln!("Failed to acquire lock for connection: {}", err);
-                        continue;
-                    }
-                    let conn = match conn.lock() {
-                        Ok(guard) => guard,
-                        Err(poisoned) => poisoned.into_inner(),
-                    };
-                    conn.interrupt();
-                }
-                Err(err) => eprintln!("Failed to get global connection: {}", err),
+            if let Err(err) = interrupt_all_connections() {
+                eprintln!("Failed to interrupt connections: {}", err);
             }
         }
     });
 }
 
 fn iceberg_loaded() -> Result<bool> {
-    let conn = get_global_connection()?;
-    let conn = match conn.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    let mut statement = conn.prepare("SELECT * FROM duckdb_extensions() WHERE extension_name = 'iceberg' AND installed = true AND loaded = true")?;
-    match statement.query([])?.next() {
-        Ok(Some(_)) => Ok(true),
-        _ => Ok(false),
-    }
+    with_connection!(|conn: &Connection| {
+        let mut statement = conn.prepare("SELECT * FROM duckdb_extensions() WHERE extension_name = 'iceberg' AND installed = true AND loaded = true")?;
+        match statement.query([])?.next() {
+            Ok(Some(_)) => Ok(true),
+            _ => Ok(false),
+        }
+    })
 }
 
 fn get_global_statement() -> &'static UnsafeCell<Option<Statement<'static>>> {
@@ -138,28 +127,33 @@ pub fn create_parquet_relation(
     execute(statement.as_str(), [])
 }
 
+pub fn create_spatial_relation(
+    table_name: &str,
+    schema_name: &str,
+    table_options: HashMap<String, String>,
+) -> Result<usize> {
+    let statement = spatial::create_duckdb_relation(table_name, schema_name, table_options)?;
+    execute(statement.as_str(), [])
+}
+
 pub fn create_arrow(sql: &str) -> Result<bool> {
-    unsafe {
-        let conn = get_global_connection()?;
-        let conn = match conn.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        let statement = conn.prepare(sql)?;
-        let static_statement: Statement<'static> = std::mem::transmute(statement);
+    with_connection!(|conn: &Connection| {
+        unsafe {
+            let statement = conn.prepare(sql)?;
+            let static_statement: Statement<'static> = std::mem::transmute(statement);
 
-        *get_global_statement().get() = Some(static_statement);
+            *get_global_statement().get() = Some(static_statement);
 
-        if let Some(static_statement) = get_global_statement().get().as_mut().unwrap() {
-            let arrow = static_statement.query_arrow([])?;
-            *get_global_arrow().get() = Some(std::mem::transmute::<
-                duckdb::Arrow<'_>,
-                duckdb::Arrow<'_>,
-            >(arrow));
+            if let Some(static_statement) = get_global_statement().get().as_mut().unwrap() {
+                let arrow = static_statement.query_arrow([])?;
+                *get_global_arrow().get() = Some(std::mem::transmute::<
+                    duckdb::Arrow<'_>,
+                    duckdb::Arrow<'_>,
+                >(arrow));
+            }
         }
-    }
-
-    Ok(true)
+        Ok(true)
+    })
 }
 
 pub fn clear_arrow() {
@@ -196,47 +190,36 @@ pub fn get_batches() -> Result<Vec<RecordBatch>> {
 }
 
 pub fn execute<P: Params>(sql: &str, params: P) -> Result<usize> {
-    let conn = get_global_connection()?;
-    let conn = match conn.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            poisoned.into_inner() // Recover from the poisoned lock
-        }
-    };
-    conn.execute(sql, params).map_err(|err| anyhow!("{err}"))
+    with_connection!(|conn: &Connection| {
+        conn.execute(sql, params).map_err(|err| anyhow!("{err}"))
+    })
 }
 
 pub fn drop_relation(table_name: &str, schema_name: &str) -> Result<()> {
-    let conn = get_global_connection()?;
-    let conn = conn
-        .lock()
-        .map_err(|e| anyhow!("Failed to acquire lock: {}", e))?;
-    let mut statement = conn.prepare(format!("SELECT table_type from information_schema.tables WHERE table_schema = '{schema_name}' AND table_name = '{table_name}' LIMIT 1").as_str())?;
-    if let Ok(Some(row)) = statement.query([])?.next() {
-        let table_type: String = row.get(0)?;
-        let table_type = table_type.replace("BASE", "").trim().to_string();
-        let statement = format!("DROP {table_type} {schema_name}.{table_name}");
-        conn.execute(statement.as_str(), [])?;
-    }
-
-    Ok(())
+    with_connection!(|conn: &Connection| {
+        let mut statement = conn.prepare(format!("SELECT table_type from information_schema.tables WHERE table_schema = '{schema_name}' AND table_name = '{table_name}' LIMIT 1").as_str())?;
+        if let Ok(Some(row)) = statement.query([])?.next() {
+            let table_type: String = row.get(0)?;
+            let table_type = table_type.replace("BASE", "").trim().to_string();
+            let statement = format!("DROP {table_type} {schema_name}.{table_name}");
+            conn.execute(statement.as_str(), [])?;
+        }
+        Ok(())
+    })
 }
 
 pub fn get_available_schemas() -> Result<Vec<String>> {
-    let conn = get_global_connection()?;
-    let conn = conn
-        .lock()
-        .map_err(|e| anyhow!("Failed to acquire lock: {}", e))?;
-    let mut stmt = conn.prepare("select DISTINCT(nspname) from pg_namespace;")?;
-    let schemas: Vec<String> = stmt
-        .query_map([], |row| {
-            let s: String = row.get(0)?;
-            Ok(s)
-        })?
-        .map(|x| x.unwrap())
-        .collect();
-
-    Ok(schemas)
+    with_connection!(|conn: &Connection| {
+        let mut stmt = conn.prepare("select DISTINCT(nspname) from pg_namespace;")?;
+        let schemas: Vec<String> = stmt
+            .query_map([], |row| {
+                let s: String = row.get(0)?;
+                Ok(s)
+            })?
+            .map(|x| x.unwrap())
+            .collect();
+        Ok(schemas)
+    })
 }
 
 pub fn set_search_path(search_path: Vec<String>) -> Result<()> {

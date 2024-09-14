@@ -1,8 +1,10 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use pgrx::*;
 
 use crate::duckdb::connection;
 use crate::env::get_global_connection;
+use crate::with_connection;
+use duckdb::Connection;
 
 type DuckdbSettingsRow = (
     Option<String>,
@@ -37,23 +39,20 @@ pub fn duckdb_settings() -> iter::TableIterator<
 
 #[inline]
 fn duckdb_settings_impl() -> Result<Vec<DuckdbSettingsRow>> {
-    let conn = get_global_connection()?;
-    let conn = match conn.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    let mut stmt = conn.prepare("SELECT * FROM duckdb_settings()")?;
+    with_connection!(|conn: &Connection| {
+        let mut stmt = conn.prepare("SELECT * FROM duckdb_settings()")?;
 
-    Ok(stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
-        })?
-        .map(|row| row.unwrap())
-        .collect::<Vec<DuckdbSettingsRow>>())
+        Ok(stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?
+            .map(|row| row.unwrap())
+            .collect::<Vec<DuckdbSettingsRow>>())
+    })
 }

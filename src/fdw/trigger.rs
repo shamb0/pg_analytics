@@ -24,6 +24,8 @@ use supabase_wrappers::prelude::{options_to_hashmap, user_mapping_options};
 use crate::duckdb::connection;
 use crate::env::get_global_connection;
 use crate::fdw::handler::FdwHandler;
+use crate::with_connection;
+use duckdb::Connection;
 
 extension_sql!(
     r#"
@@ -144,33 +146,31 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
     pg_sys::RelationClose(relation);
 
     // Get DuckDB schema
-    let conn = get_global_connection()?;
-    let conn = conn
-        .lock()
-        .map_err(|e| anyhow!("Failed to acquire lock: {}", e))?;
-    let query = format!("DESCRIBE {schema_name}.{table_name}");
-    let mut stmt = conn.prepare(&query)?;
+    with_connection!(|conn: &Connection| {
+        let query = format!("DESCRIBE {schema_name}.{table_name}");
+        let mut stmt = conn.prepare(&query)?;
 
-    let schema_rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .map(|row| row.unwrap())
-        .collect::<Vec<(String, String)>>();
+        let schema_rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .map(|row| row.unwrap())
+            .collect::<Vec<(String, String)>>();
 
-    if schema_rows.is_empty() {
-        return Ok(());
-    }
+        if schema_rows.is_empty() {
+            return Ok(());
+        }
 
-    // Alter Postgres table to match DuckDB schema
-    let preserve_casing = table_options
-        .get("preserve_casing")
-        .map_or(false, |s| s.eq_ignore_ascii_case("true"));
-    let alter_table_statement =
-        construct_alter_table_statement(schema_name, table_name, schema_rows, preserve_casing);
-    Spi::run(alter_table_statement.as_str())?;
+        // Alter Postgres table to match DuckDB schema
+        let preserve_casing = table_options
+            .get("preserve_casing")
+            .map_or(false, |s| s.eq_ignore_ascii_case("true"));
+        let alter_table_statement =
+            construct_alter_table_statement(schema_name, table_name, schema_rows, preserve_casing);
+        Spi::run(alter_table_statement.as_str())?;
 
-    Ok(())
+        Ok(())
+    })
 }
 
 #[inline]
@@ -299,6 +299,9 @@ pub fn create_duckdb_relation(
         }
         FdwHandler::Parquet => {
             connection::create_parquet_relation(table_name, schema_name, table_options)?;
+        }
+        FdwHandler::Spatial => {
+            connection::create_spatial_relation(table_name, schema_name, table_options)?;
         }
         _ => {
             bail!("got unexpected fdw_handler")
