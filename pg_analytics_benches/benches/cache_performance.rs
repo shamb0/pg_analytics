@@ -1,11 +1,11 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
+use cargo_metadata::MetadataCommand;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use datafusion::dataframe::DataFrame;
 use datafusion::prelude::*;
 use sqlx::PgConnection;
-use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -20,9 +20,15 @@ use fixtures::*;
 
 use crate::tables::auto_sales::AutoSalesSimulator;
 use crate::tables::auto_sales::AutoSalesTestRunner;
+use camino::Utf8PathBuf;
 
-pub const TOTAL_RECORDS: usize = 1_000_000;
-pub const BATCH_SIZE: usize = 1_000;
+const TOTAL_RECORDS: usize = 10_000;
+const BATCH_SIZE: usize = 512;
+
+// Constants for benchmark configuration
+const SAMPLE_SIZE: usize = 10;
+const MEASUREMENT_TIME_SECS: u64 = 30;
+const WARM_UP_TIME_SECS: u64 = 2;
 
 struct BenchResource {
     df: Arc<DataFrame>,
@@ -90,18 +96,36 @@ impl BenchResource {
     }
 
     fn parquet_path() -> PathBuf {
-        // Use the environment variable to detect the `target` path
-        let target_dir = env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string());
-        let parquet_path = Path::new(&target_dir).join("tmp_dataset/ds_auto_sales.parquet");
+        let target_dir = MetadataCommand::new()
+            .no_deps()
+            .exec()
+            .map(|metadata| metadata.workspace_root)
+            .unwrap_or_else(|err| {
+                tracing::warn!(
+                    "Failed to get workspace root: {}. Using 'target' as fallback.",
+                    err
+                );
+                Utf8PathBuf::from("target")
+            });
+
+        let parquet_path = target_dir
+            .join("target")
+            .join("tmp_dataset")
+            .join("ds_auto_sales.parquet");
 
         // Check if the file exists; if not, create the necessary directories
         if !parquet_path.exists() {
             if let Some(parent_dir) = parquet_path.parent() {
-                fs::create_dir_all(parent_dir).expect("Failed to create directories");
+                fs::create_dir_all(parent_dir)
+                    .with_context(|| format!("Failed to create directory: {:#?}", parent_dir))
+                    .unwrap_or_else(|err| {
+                        tracing::error!("{}", err);
+                        panic!("Critical error: {}", err);
+                    });
             }
         }
 
-        parquet_path
+        parquet_path.into()
     }
 
     async fn setup_tables(
@@ -198,7 +222,7 @@ pub fn full_cache_bench(c: &mut Criterion) {
     let foreign_table_id = "auto_sales_full_cache";
 
     let mut group = c.benchmark_group("Parquet Full Cache Benchmarks");
-    group.sample_size(10); // Adjust sample size if necessary
+    group.sample_size(SAMPLE_SIZE); // Adjust sample size if necessary
 
     // Setup tables for the benchmark
     bench_resource.runtime.block_on(async {
@@ -212,9 +236,9 @@ pub fn full_cache_bench(c: &mut Criterion) {
 
     // Run the benchmark with full cache
     group
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(3))
-        .warm_up_time(Duration::from_secs(1))
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME_SECS))
+        .warm_up_time(Duration::from_secs(WARM_UP_TIME_SECS))
         .throughput(criterion::Throughput::Elements(TOTAL_RECORDS as u64))
         .bench_function(BenchmarkId::new("Auto Sales", "Full Cache"), |b| {
             b.to_async(&bench_resource.runtime).iter(|| async {
@@ -245,7 +269,7 @@ pub fn disk_cache_bench(c: &mut Criterion) {
     let foreign_table_id = "auto_sales_disk_cache";
 
     let mut group = c.benchmark_group("Parquet Disk Cache Benchmarks");
-    group.sample_size(10); // Adjust sample size if necessary
+    group.sample_size(SAMPLE_SIZE); // Adjust sample size if necessary
 
     // Setup tables for the benchmark
     bench_resource.runtime.block_on(async {
@@ -259,9 +283,9 @@ pub fn disk_cache_bench(c: &mut Criterion) {
 
     // Run the benchmark with disk cache
     group
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(3))
-        .warm_up_time(Duration::from_secs(1))
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME_SECS))
+        .warm_up_time(Duration::from_secs(WARM_UP_TIME_SECS))
         .throughput(criterion::Throughput::Elements(TOTAL_RECORDS as u64))
         .bench_function(BenchmarkId::new("Auto Sales", "Disk Cache"), |b| {
             b.to_async(&bench_resource.runtime).iter(|| async {
@@ -306,9 +330,9 @@ pub fn mem_cache_bench(c: &mut Criterion) {
 
     // Run the benchmark with mem cache
     group
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(3))
-        .warm_up_time(Duration::from_secs(1))
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME_SECS))
+        .warm_up_time(Duration::from_secs(WARM_UP_TIME_SECS))
         .throughput(criterion::Throughput::Elements(TOTAL_RECORDS as u64))
         .bench_function(BenchmarkId::new("Auto Sales", "Mem Cache"), |b| {
             b.to_async(&bench_resource.runtime).iter(|| async {
@@ -353,9 +377,9 @@ pub fn no_cache_bench(c: &mut Criterion) {
 
     // Run the benchmark with no cache
     group
-        .sample_size(10)
-        .measurement_time(Duration::from_secs(3))
-        .warm_up_time(Duration::from_secs(1))
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(MEASUREMENT_TIME_SECS))
+        .warm_up_time(Duration::from_secs(WARM_UP_TIME_SECS))
         .throughput(criterion::Throughput::Elements(TOTAL_RECORDS as u64))
         .bench_function(BenchmarkId::new("Auto Sales", "No Cache"), |b| {
             b.to_async(&bench_resource.runtime).iter(|| async {
@@ -372,8 +396,8 @@ pub fn no_cache_bench(c: &mut Criterion) {
 
 criterion_group!(
     name = parquet_ft_bench;
-    config = Criterion::default().measurement_time(std::time::Duration::from_secs(30));
-    targets = no_cache_bench, disk_cache_bench, mem_cache_bench, full_cache_bench
+    config = Criterion::default().measurement_time(std::time::Duration::from_secs(240));
+    targets = disk_cache_bench, mem_cache_bench, full_cache_bench, no_cache_bench
 );
 
 criterion_main!(parquet_ft_bench);
