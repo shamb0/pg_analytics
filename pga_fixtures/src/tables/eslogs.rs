@@ -1066,3 +1066,68 @@ impl EsLogTestManager {
         Ok(())
     }
 }
+
+
+pub struct EsLogBenchManager;
+
+impl EsLogBenchManager {
+    
+    pub async fn bench_time_range_query(
+        pg_conn: &mut PgConnection,
+        eslogs_local_df: &DataFrame,
+        foreign_table_id: &str
+    ) -> Result<()> {
+        // Calculate min and max timestamps
+        let min_max_df = eslogs_local_df
+            .clone()
+            .aggregate(
+                vec![],
+                vec![
+                    min(col("timestamp")).alias("min_timestamp"),
+                    max(col("timestamp")).alias("max_timestamp"),
+                ],
+            )?
+            .collect()
+            .await?;
+
+        let min_max_batch = &min_max_df[0];
+
+        let min_ts = min_max_batch
+            .column_by_name("min_timestamp")
+            .ok_or_else(|| anyhow::anyhow!("min_timestamp column not found"))?
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .ok_or_else(|| {
+                anyhow::anyhow!("Failed to downcast min_timestamp to TimestampMillisecondArray")
+            })?
+            .value(0);
+
+        let max_ts = min_max_batch
+            .column_by_name("max_timestamp")
+            .ok_or_else(|| anyhow::anyhow!("max_timestamp column not found"))?
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .ok_or_else(|| {
+                anyhow::anyhow!("Failed to downcast max_timestamp to TimestampMillisecondArray")
+            })?
+            .value(0);
+
+        let min_ts_str = NaiveDateTime::from_timestamp_millis(min_ts)
+            .ok_or_else(|| anyhow::anyhow!("Invalid min timestamp"))?
+            .format("%Y-%m-%d %H:%M:%S%.3f")
+            .to_string();
+        let max_ts_str = NaiveDateTime::from_timestamp_millis(max_ts)
+            .ok_or_else(|| anyhow::anyhow!("Invalid max timestamp"))?
+            .format("%Y-%m-%d %H:%M:%S%.3f")
+            .to_string();
+
+        let query = format!(
+            "SELECT * FROM {foreign_table_id} WHERE timestamp >= '{}' AND timestamp < '{}'",
+            min_ts_str, max_ts_str
+        );
+
+        let _pg_result = sqlx::query(&query).fetch_all(pg_conn).await?;
+
+        Ok(())
+    }
+}
