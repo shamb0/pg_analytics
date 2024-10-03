@@ -24,6 +24,7 @@ use anyhow::{Context, Result};
 use async_std::task::block_on;
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::types::Object;
 use bytes::Bytes;
 use chrono::{DateTime, Duration};
 use datafusion::arrow::array::*;
@@ -188,61 +189,215 @@ impl S3 {
         self.put_batch(bucket, key, &batch).await
     }
 
-    #[allow(dead_code)]
-    pub async fn put_directory(&self, bucket: &str, path: &str, dir: &Path) -> Result<()> {
-        fn upload_files(
-            client: aws_sdk_s3::Client,
-            bucket: String,
-            base_path: PathBuf,
-            current_path: PathBuf,
-            key_prefix: PathBuf,
-        ) -> BoxFuture<'static, Result<()>> {
-            async move {
-                let entries = fs::read_dir(&current_path)?
-                    .filter_map(|entry| entry.ok())
-                    .collect::<Vec<_>>();
+    // #[allow(dead_code)]
+    pub async fn put_directory(
+        &self,
+        bucket: &str,
+        s3_prefix: &str,
+        local_dir: &Path,
+    ) -> Result<()> {
+        self.put_directory_recursive(bucket, s3_prefix, local_dir)
+            .await
+    }
 
-                for entry in entries {
-                    let entry_path = entry.path();
-                    if entry_path.is_file() {
-                        let key = key_prefix.join(entry_path.strip_prefix(&base_path)?);
-                        let mut file = File::open(&entry_path)?;
-                        let mut buf = vec![];
-                        file.read_to_end(&mut buf)?;
-                        client
-                            .put_object()
-                            .bucket(&bucket)
-                            .key(key.to_str().unwrap())
-                            .body(ByteStream::from(buf))
-                            .send()
-                            .await?;
-                    } else if entry_path.is_dir() {
-                        let new_key_prefix = key_prefix.join(entry_path.strip_prefix(&base_path)?);
-                        upload_files(
-                            client.clone(),
-                            bucket.clone(),
-                            base_path.clone(),
-                            entry_path.clone(),
-                            new_key_prefix,
-                        )
-                        .await?;
+    fn put_directory_recursive<'a>(
+        &'a self,
+        bucket: &'a str,
+        s3_prefix: &'a str,
+        local_dir: &'a Path,
+    ) -> BoxFuture<'a, Result<()>> {
+        Box::pin(async move {
+            let base_path = local_dir.to_path_buf();
+            let entries = fs::read_dir(local_dir).context("Failed to read directory")?;
+
+            for entry in entries {
+                let entry = entry.context("Failed to read directory entry")?;
+                let path = entry.path();
+                let relative_path = path.strip_prefix(&base_path)?;
+                let s3_key = if s3_prefix.is_empty() {
+                    relative_path.to_string_lossy().to_string()
+                } else {
+                    format!("{}/{}", s3_prefix, relative_path.to_string_lossy())
+                };
+
+                if path.is_file() {
+                    tracing::info!("Uploading file: local_path={:?}, s3_key={}", path, s3_key);
+
+                    let content = fs::read(&path).context("Failed to read file")?;
+                    self.client
+                        .put_object()
+                        .bucket(bucket)
+                        .key(&s3_key)
+                        .body(ByteStream::from(content))
+                        .send()
+                        .await
+                        .context("Failed to upload file to S3")?;
+
+                    tracing::info!("Uploaded file: s3_key={}", s3_key);
+                } else if path.is_dir() {
+                    self.put_directory_recursive(bucket, &s3_key, &path).await?;
+                }
+            }
+
+            Ok(())
+        })
+    }
+
+    // #[allow(dead_code)]
+    // pub async fn put_directory(&self, bucket: &str, s3_prefix: &str, local_dir: &Path) -> Result<()> {
+    //     self.put_directory_recursive(bucket, s3_prefix, local_dir).await
+    // }
+
+    // fn put_directory_recursive<'a>(
+    //     &'a self,
+    //     bucket: &'a str,
+    //     s3_prefix: &'a str,
+    //     local_dir: &'a Path,
+    // ) -> BoxFuture<'a, Result<()>> {
+    //     Box::pin(async move {
+    //         let base_path = local_dir.to_path_buf();
+    //         let mut entries = tokio::fs::read_dir(local_dir).await?;
+
+    //         while let Some(entry) = entries.next_entry().await? {
+    //             let path = entry.path();
+    //             let relative_path = path.strip_prefix(&base_path)?;
+    //             let s3_key = if s3_prefix.is_empty() {
+    //                 relative_path.to_string_lossy().to_string()
+    //             } else {
+    //                 format!("{}/{}", s3_prefix, relative_path.to_string_lossy())
+    //             };
+
+    //             if path.is_file() {
+    //                 tracing::debug!("Uploading file: local_path={:?}, s3_key={}", path, s3_key);
+
+    //                 let content = tokio::fs::read(&path).await.context("Failed to read file")?;
+    //                 self.client
+    //                     .put_object()
+    //                     .bucket(bucket)
+    //                     .key(&s3_key)
+    //                     .body(ByteStream::from(content))
+    //                     .send()
+    //                     .await
+    //                     .context("Failed to upload file to S3")?;
+
+    //                 tracing::info!("Uploaded file: s3_key={}", s3_key);
+    //             } else if path.is_dir() {
+    //                 self.put_directory_recursive(bucket, &s3_key, &path).await?;
+    //             }
+    //         }
+
+    //         Ok(())
+    //     })
+    // }
+
+    // #[allow(dead_code)]
+    // pub async fn put_directory(&self, bucket: &str, path: &str, dir: &Path) -> Result<()> {
+    //     fn upload_files(
+    //         client: aws_sdk_s3::Client,
+    //         bucket: String,
+    //         base_path: PathBuf,
+    //         current_path: PathBuf,
+    //         key_prefix: String,
+    //     ) -> BoxFuture<'static, Result<()>> {
+    //         async move {
+    //             let entries = fs::read_dir(&current_path)?
+    //                 .filter_map(|entry| entry.ok())
+    //                 .collect::<Vec<_>>();
+
+    //             for entry in entries {
+    //                 let entry_path = entry.path();
+    //                 if entry_path.is_file() {
+    //                     let relative_path = entry_path.strip_prefix(&base_path)?;
+    //                     let key = if key_prefix.is_empty() {
+    //                         relative_path.to_string_lossy().to_string()
+    //                     } else {
+    //                         format!("{}/{}", key_prefix, relative_path.to_string_lossy())
+    //                     };
+    //                     tracing::warn!("put_directory()::upload_files()::key :: {}", key);
+    //                     let mut file = File::open(&entry_path)?;
+    //                     let mut buf = vec![];
+    //                     file.read_to_end(&mut buf)?;
+    //                     client
+    //                         .put_object()
+    //                         .bucket(&bucket)
+    //                         .key(&key)
+    //                         .body(ByteStream::from(buf))
+    //                         .send()
+    //                         .await?;
+    //                 } else if entry_path.is_dir() {
+    //                     let relative_path = entry_path.strip_prefix(&base_path)?;
+    //                     let new_key_prefix = if key_prefix.is_empty() {
+    //                         relative_path.to_string_lossy().to_string()
+    //                     } else {
+    //                         format!("{}/{}", key_prefix, relative_path.to_string_lossy())
+    //                     };
+    //                     tracing::warn!("put_directory()::upload_files()::new_key_prefix :: {}", new_key_prefix);
+    //                     upload_files(
+    //                         client.clone(),
+    //                         bucket.clone(),
+    //                         base_path.clone(),
+    //                         entry_path,
+    //                         new_key_prefix,
+    //                     )
+    //                     .await?;
+    //                 }
+    //             }
+
+    //             Ok(())
+    //         }
+    //         .boxed()
+    //     }
+
+    //     upload_files(
+    //         self.client.clone(),
+    //         bucket.to_string(),
+    //         dir.to_path_buf(),
+    //         dir.to_path_buf(),
+    //         path.to_string(),
+    //     )
+    //     .await?;
+    //     Ok(())
+    // }
+
+    pub async fn list_objects(&self, bucket: &str, prefix: &str) -> Result<Vec<Object>> {
+        let mut objects = Vec::new();
+
+        let mut paginator = self
+            .client
+            .list_objects_v2()
+            .bucket(bucket)
+            .prefix(prefix)
+            .into_paginator()
+            .send();
+
+        while let Some(page) = paginator.next().await {
+            match page {
+                Ok(output) => {
+                    if let Some(contents) = output.contents {
+                        objects.extend(contents);
                     }
                 }
-
-                Ok(())
+                Err(err) => {
+                    return Err(anyhow::anyhow!("Failed to list objects: {:?}", err));
+                }
             }
-            .boxed()
         }
 
-        let key_prefix = PathBuf::from(path);
-        upload_files(
-            self.client.clone(),
-            bucket.to_string(),
-            dir.to_path_buf(),
-            dir.to_path_buf(),
-            key_prefix,
-        )
-        .await?;
+        Ok(objects)
+    }
+
+    pub async fn print_object_list(&self, bucket: &str, prefix: &str) -> Result<()> {
+        let objects = self.list_objects(bucket, prefix).await?;
+
+        tracing::info!("Objects in s3://{}/{}", bucket, prefix);
+        for object in objects {
+            tracing::info!(
+                "  {} ({})",
+                object.key().unwrap_or(""),
+                object.size().unwrap_or(0)
+            );
+        }
+
         Ok(())
     }
 }

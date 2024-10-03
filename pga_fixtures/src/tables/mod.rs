@@ -17,4 +17,5 @@
 
 pub mod auto_sales;
 pub mod duckdb_types;
+pub mod eslogs;
 pub mod nyc_trips;

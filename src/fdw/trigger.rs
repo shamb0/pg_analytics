@@ -76,8 +76,10 @@ const DUCKDB_RESERVED_NAMES: [&str; 16] = [
 
 #[inline]
 unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()> {
+    pgrx::warning!("pga:: Entry");
     // Parse fcinfo
     if !is_a((*fcinfo).context, pg_sys::NodeTag::T_EventTriggerData) {
+        pgrx::warning!("pga:: 1.1.1 Exit");
         return Ok(());
     }
 
@@ -87,8 +89,11 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         (*event_trigger_data).parsetree,
         pg_sys::NodeTag::T_CreateForeignTableStmt,
     ) {
+        pgrx::warning!("pga:: 1.1.2 Exit");
         return Ok(());
     }
+
+    pgrx::warning!("pga:: 1.1");
 
     let create_foreign_stmt =
         (*event_trigger_data).parsetree as *mut pg_sys::CreateForeignTableStmt;
@@ -106,23 +111,31 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         std::ptr::null_mut(),
     );
 
+    pgrx::warning!("pga:: 2.1");
+
     // If the foreign table was not created by this extension, exit
     let foreign_table = unsafe { pg_sys::GetForeignTable(oid) };
 
     if FdwHandler::from(foreign_table) == FdwHandler::Other {
+        pgrx::warning!("pga:: 2.1.1 Exit");
         return Ok(());
     }
 
     // Don't allow DuckDB reserved names
     if DUCKDB_RESERVED_NAMES.contains(&table_name) {
+        pgrx::warning!("pga:: 2.1.2 Exit");
         bail!(
             "Table name '{}' is not allowed because it is reserved by DuckDB",
             table_name
         );
     }
 
+    pgrx::warning!("pga:: 3.1");
+
     // Drop stale relation
     connection::drop_relation(table_name, schema_name)?;
+
+    pgrx::warning!("pga:: 3.1.1");
 
     // Create DuckDB secrets
     let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
@@ -131,17 +144,30 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         connection::create_secret(user_mapping_options)?;
     }
 
+    pgrx::warning!("pga:: 3.1.2");
+
     // Create DuckDB relation
     let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
     let handler = FdwHandler::from(foreign_table);
+    pgrx::warning!("pga:: 3.1.2.1");
+
+    pgrx::warning!("pga:: table_name {:#?}", table_name);
+    pgrx::warning!("pga:: schema_name {:#?}", schema_name);
+    pgrx::warning!("pga:: table_options {:#?}", table_options);
+
     create_duckdb_relation(table_name, schema_name, table_options.clone(), handler)?;
+
+    pgrx::warning!("pga:: 3.1.2.2");
 
     // If the table already has columns, no need for auto schema creation
     let relation = pg_sys::relation_open(oid, pg_sys::AccessShareLock as i32);
     if (*(*relation).rd_att).natts != 0 {
         pg_sys::RelationClose(relation);
+        pgrx::warning!("pga:: 3.1.2 Exit");
         return Ok(());
     }
+
+    pgrx::warning!("pga:: 4.1");
 
     pg_sys::RelationClose(relation);
 
@@ -168,6 +194,8 @@ unsafe fn auto_create_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<()
         let alter_table_statement =
             construct_alter_table_statement(schema_name, table_name, schema_rows, preserve_casing);
         Spi::run(alter_table_statement.as_str())?;
+
+        pgrx::warning!("pga:: Exit");
 
         Ok(())
     })
@@ -282,6 +310,8 @@ pub fn create_duckdb_relation(
     table_options: HashMap<String, String>,
     handler: FdwHandler,
 ) -> Result<()> {
+    pgrx::warning!("pga:: create_duckdb_relation Entry");
+
     connection::execute(
         format!("CREATE SCHEMA IF NOT EXISTS {schema_name}").as_str(),
         [],
@@ -307,6 +337,8 @@ pub fn create_duckdb_relation(
             bail!("got unexpected fdw_handler")
         }
     };
+
+    pgrx::warning!("pga:: create_duckdb_relation Exit");
 
     Ok(())
 }

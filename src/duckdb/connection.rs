@@ -201,7 +201,8 @@ pub fn get_batches() -> Result<Vec<RecordBatch>> {
 
 pub fn execute<P: Params>(sql: &str, params: P) -> Result<usize> {
     with_connection!(|conn: &Connection| {
-        conn.execute(sql, params).map_err(|err| anyhow!("{err}"))
+        conn.execute(sql, params)
+            .map_err(|err| anyhow!("duckdb.conn.execute :: {err}"))
     })
 }
 

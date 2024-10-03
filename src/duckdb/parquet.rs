@@ -73,6 +73,8 @@ pub fn create_duckdb_relation(
     schema_name: &str,
     table_options: HashMap<String, String>,
 ) -> Result<String> {
+    pgrx::warning!("create_duckdb_relation:: Entry");
+
     let files = Some(utils::format_csv(
         table_options
             .get(ParquetOption::Files.as_ref())
@@ -128,6 +130,17 @@ pub fn create_duckdb_relation(
         .unwrap_or(false);
 
     let relation = if cache { "TABLE" } else { "VIEW" };
+
+    pgrx::warning!(
+        "create_duckdb_relation:: create_parquet_str {:#?}",
+        create_parquet_str
+    );
+
+    pgrx::warning!("create_duckdb_relation:: Exit");
+
+    pgrx::warning!("SQL :: {:#?}",
+        format!("CREATE {relation} IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_parquet({create_parquet_str})")
+    );
 
     Ok(format!("CREATE {relation} IF NOT EXISTS {schema_name}.{table_name} AS SELECT * FROM read_parquet({create_parquet_str})"))
 }
